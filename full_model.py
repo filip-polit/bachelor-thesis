@@ -1,13 +1,18 @@
+# BACHELOR-THESIS
+# SIGURD DYBBRO RING & FILIP BUDNY (2026)
+# DIFFERENTIATED VAT IN DENMARK: AN EFFICIENCY ANALYSIS
+
 import numpy as np
 from scipy.optimize import brentq, minimize_scalar
 import warnings
 warnings.filterwarnings("ignore")
 
 
-HOURS_YEAR = 1_380.0
-N   = 10
-pop = np.full(N, 0.10)
+HOURS_YEAR = 1_380.0 #average hours worked per year (calibration)
+N   = 10 # number of wage types
+pop = np.full(N, 0.10) # pop shares
 
+# observed annual average incomes, only relevant for calibration
 _annual_income = np.array([
       65.300,  165.400,
      216.100,  261.300,
@@ -15,18 +20,22 @@ _annual_income = np.array([
      458.700,  539.000,
      657.900, 1311.600,
 ])
+# wages of each type (calibrated to match obs incomes)
 wages = np.array([
     0.083, 0.154, 0.184, 0.208, 0.236,
     0.270, 0.303, 0.337, 0.384, 0.675,
 ])
 
-t_base   = np.array([0.25, 0.25, 0.25])
-t_reform = np.array([0.0,  0.25, 0.25])
 
-sigma_n = 1.5
-sigma_o = 0.6
-alpha   = 0.15
-epsilon = 0.5
+t_base   = np.array([0.25, 0.25, 0.25]) # status quo vat policy
+t_reform = np.array([0.0,  0.25, 0.25]) # reform vat policy
+
+
+#outer nest parameters
+sigma_n = 1.5 #inner-nest elasticity (food vs restaurants)
+sigma_o = 0.6 #outer-nest elasticity (nutrition vs other)
+alpha   = 0.15 #outer-nest weight on nutrition composite (vs other goods)
+epsilon = 0.5 #frisch elasticity
 
 _obs_shares = np.array([
     [0.101, 0.0470, 0.852],
@@ -44,13 +53,13 @@ _obs_shares = _obs_shares / _obs_shares.sum(axis=1, keepdims=True)
 
 p_calib = 1.0 + t_base
 
+#inner nest parameters
+beta = np.array([1.5, 1.1]) #inner-nest weights
+k    = np.array([2.8,  0,  0. ]) #subsistence levels
+phi  = 1.98e+07 #labor scaler
 
-beta = np.array([1.5, 1.1])
-k    = np.array([2.8,  0,  0. ])
-phi  = 1.98e+07
-
-gamma = 5
-theta = 0.5
+gamma = 5 # home production labor and strain per unit of real food
+theta = 0.5 # returns of scale in home production
 
 print(f"\n  Manual calibration parameters:")
 print(f"    beta    = [{beta[0]:.6f}, {beta[1]:.6f}]  (inner-nest weights, food/rest.)")
@@ -64,7 +73,7 @@ print(f"  Home-labor technology: L_H = gamma * x1**theta")
 print(f"    gamma   = {gamma} hours per unit real food (1 unit = 1 tDKK pre-VAT)")
 print(f"    theta = {theta}  ({'linear (CRS)' if theta == 1.0 else 'increasing returns'})")
 
-
+# subutility function
 def subutility(x1, x2, x3):
     b1, b2 = beta
     k1, k2, k3 = k
@@ -76,7 +85,7 @@ def subutility(x1, x2, x3):
     N = (b1 * c1**rho_n + b2 * c2**rho_n)**(1 / rho_n)
     return (alpha * N**rho_o + (1 - alpha) * c3**rho_o)**(1 / rho_o)
 
-
+# utility function
 def utility(x1, x2, x3, L_M):
     """U = u(x) − v(L_total),  L_total = L_M + gamma · x1^theta  (Becker + IRS)."""
     c = subutility(x1, x2, x3)
@@ -89,7 +98,7 @@ def utility(x1, x2, x3, L_M):
     v_L = L_total**(1 + 1/epsilon) / ((1 + 1/epsilon) * phi)
     return c - v_L
 
-
+# nested aggregates
 def _nested_aggregates(p1, p2, p3):
     """Return (W_n, P_N, W_o, mu) at consumer prices (p1, p2, p3)."""
     b1, b2 = beta
@@ -99,7 +108,7 @@ def _nested_aggregates(p1, p2, p3):
     mu  = W_o**(1 / (sigma_o - 1))
     return W_n, P_N, W_o, mu
 
-
+# nested demands
 def _nested_demands(M_sup, p1, p2, p3, W_n, P_N, W_o):
     """Stage-2 then stage-1 split of supernumerary expenditure into x1, x2, x3."""
     b1, b2 = beta
@@ -110,7 +119,7 @@ def _nested_demands(M_sup, p1, p2, p3, W_n, P_N, W_o):
     x3 = k[2] + E_3 / p3
     return x1, x2, x3
 
-
+#equillibrium solver
 def solve_consumer(wage, mtr, T, t1, t2, t3):
     """Solve the household's utility-maximization problem under nested CES with
     Becker home labour and IRS in home production."""
@@ -147,7 +156,7 @@ def solve_consumer(wage, mtr, T, t1, t2, t3):
     U = utility(x1, x2, x3, L_M)
     return dict(x1=x1, x2=x2, x3=x3, L=L_M, Y=wage*L_M, U=U)
 
-
+# equillibrium solver for fixed L_M (used in schedule construction)
 def solve_consumer_fixed_L(wage, mtr, T, t1, t2, t3, L_fixed):
     """Demand allocation at given prices and transfer, holding L_M = L_fixed."""
     p1, p2, p3 = 1 + t1, 1 + t2, 1 + t3
@@ -165,7 +174,7 @@ def solve_consumer_fixed_L(wage, mtr, T, t1, t2, t3, L_fixed):
     U = utility(x1, x2, x3, L_fixed)
     return dict(x1=x1, x2=x2, x3=x3, L=L_fixed, Y=wage*L_fixed, U=U)
 
-
+# government revenue function
 def gov_revenue(results, t1, t2, t3):
     """Sum of income tax (results[i]['T']) plus commodity tax revenue.
     Requires `results` to come from optimize_household."""
@@ -176,7 +185,7 @@ def gov_revenue(results, t1, t2, t3):
     )
 
 
-G = 148.33
+G = 148.33 # sets amount of public good expenditure per person
 
 
 def print_shares(results, t1, t2, t3, label=""):
@@ -190,10 +199,10 @@ def print_shares(results, t1, t2, t3, label=""):
         s = [p[j]*r[f'x{j+1}']/M for j in range(3)]
         print(f"  {i+1:>5}  {s[0]:>10.2%}  {s[1]:>11.2%}  {s[2]:>12.2%}")
 
-
-MTR_LOW   = 0.45
-MTR_HIGH  = 0.60
-Y_THRESHOLD = 750
+# tax schedule definiiton
+MTR_LOW   = 0.45 # low bracket
+MTR_HIGH  = 0.60 # high bracket
+Y_THRESHOLD = 750 #threshold (kink)
 T_AT_THRESHOLD = MTR_LOW * Y_THRESHOLD
 
 
