@@ -77,35 +77,35 @@ print(f"    theta = {theta}  ({'linear (CRS)' if theta == 1.0 else 'increasing r
 def subutility(x1, x2, x3):
     b1, b2 = beta
     k1, k2, k3 = k
-    c1 = x1 - k1; c2 = x2 - k2; c3 = x3 - k3
-    if c1 <= 0 or c2 <= 0 or c3 <= 0:
+    c1 = x1 - k1; c2 = x2 - k2; c3 = x3 - k3 #c is consumption over subsidence level
+    if c1 <= 0 or c2 <= 0 or c3 <= 0: # ensures that  actual consumption is always bigger than subsistence levels
         return -1e10
-    rho_n = (sigma_n - 1) / sigma_n
-    rho_o = (sigma_o - 1) / sigma_o
-    N = (b1 * c1**rho_n + b2 * c2**rho_n)**(1 / rho_n)
-    return (alpha * N**rho_o + (1 - alpha) * c3**rho_o)**(1 / rho_o)
+    rho_n = (sigma_n - 1) / sigma_n # converts elasticities to CES variables
+    rho_o = (sigma_o - 1) / sigma_o # converts elasticities to CES variables
+    N = (b1 * c1**rho_n + b2 * c2**rho_n)**(1 / rho_n) # N is the inner-nest nutrition nest
+    return (alpha * N**rho_o + (1 - alpha) * c3**rho_o)**(1 / rho_o) # returns outer-nest CES utility over (groceries/restaurants)and over goods
 
 # utility function
 def utility(x1, x2, x3, L_M):
     """U = u(x) − v(L_total),  L_total = L_M + gamma · x1^theta  (Becker + IRS)."""
-    c = subutility(x1, x2, x3)
+    c = subutility(x1, x2, x3) 
     if c <= -1e9:
-        return -1e10
+        return -1e10 # computes goods subutility, returns very low subutility if it is unfeasable.
     L_H = gamma * x1**theta if x1 > 0 else 0.0
-    L_total = L_M + L_H
+    L_total = L_M + L_H #home labou rrequired to procue x_1 food, and total labour (market + home)
     if L_total <= 0:
         return c
     v_L = L_total**(1 + 1/epsilon) / ((1 + 1/epsilon) * phi)
-    return c - v_L
+    return c - v_L #isoelastic labour disutility consistent with frisch elasticity
 
 # nested aggregates
 def _nested_aggregates(p1, p2, p3):
     """Return (W_n, P_N, W_o, mu) at consumer prices (p1, p2, p3)."""
     b1, b2 = beta
-    W_n = b1**sigma_n * p1**(1 - sigma_n) + b2**sigma_n * p2**(1 - sigma_n)
-    P_N = W_n**(1 / (1 - sigma_n))
-    W_o = alpha**sigma_o * P_N**(1 - sigma_o) + (1 - alpha)**sigma_o * p3**(1 - sigma_o)
-    mu  = W_o**(1 / (sigma_o - 1))
+    W_n = b1**sigma_n * p1**(1 - sigma_n) + b2**sigma_n * p2**(1 - sigma_n) #inner-nest price aggregator
+    P_N = W_n**(1 / (1 - sigma_n)) # inner-nest price index for the nutrition nest
+    W_o = alpha**sigma_o * P_N**(1 - sigma_o) + (1 - alpha)**sigma_o * p3**(1 - sigma_o) # outer-nest price aggreagotor
+    mu  = W_o**(1 / (sigma_o - 1)) #marginal utility of supernumerary expenditure
     return W_n, P_N, W_o, mu
 
 # nested demands
@@ -113,11 +113,11 @@ def _nested_demands(M_sup, p1, p2, p3, W_n, P_N, W_o):
     """Stage-2 then stage-1 split of supernumerary expenditure into x1, x2, x3."""
     b1, b2 = beta
     E_N = (alpha**sigma_o * P_N**(1 - sigma_o) / W_o) * M_sup
-    E_3 = M_sup - E_N
+    E_3 = M_sup - E_N # stage-1 split: supernumerary expenditure M^sup allocated between nutrition composite E_N and other goods E_3 via CES demand
     x1 = k[0] + (b1**sigma_n * p1**(-sigma_n) / W_n) * E_N
     x2 = k[1] + (b2**sigma_n * p2**(-sigma_n) / W_n) * E_N
     x3 = k[2] + E_3 / p3
-    return x1, x2, x3
+    return x1, x2, x3 # stage-2 split: nutrition composite E_N allocated between x1 and x2 via CES demand
 
 #equillibrium solver
 def solve_consumer(wage, mtr, T, t1, t2, t3):
@@ -125,11 +125,13 @@ def solve_consumer(wage, mtr, T, t1, t2, t3):
     Becker home labour and IRS in home production."""
     p1, p2, p3 = 1 + t1, 1 + t2, 1 + t3
     p   = np.array([p1, p2, p3])
-    wn  = (1 - mtr) * wage
+    wn  = (1 - mtr) * wagen # consumer prices and after-tax wage given a linear MTR
 
     W_n, P_N, W_o, _ = _nested_aggregates(p1, p2, p3)
-    pk = p @ k
+    pk = p @ k # price aggregators and cost of lowest possible bunde (subsistence bundle)
 
+
+# negative utility: A function of market labor. Returns a large penalty if infeasible. Cash on hand M = after-tax labour income plus lump-sum transfer T. Then subtracts subsistence costs.
     def _neg_U(L_M):
         if L_M <= 0:
             return 1e10
@@ -147,7 +149,7 @@ def solve_consumer(wage, mtr, T, t1, t2, t3):
                           bounds=(1e-6, HOURS_YEAR * 5.0),
                           method='bounded',
                           options={'xatol': 1e-6, 'maxiter': 300})
-    L_M = opt.x
+    L_M = opt.x # bounded 1 dimensional search for optimal market labor (see section 4)
     M     = wn * L_M + T
     M_sup = M - pk
     if M_sup <= 1e-6 or L_M <= 0:
@@ -156,7 +158,7 @@ def solve_consumer(wage, mtr, T, t1, t2, t3):
     U = utility(x1, x2, x3, L_M)
     return dict(x1=x1, x2=x2, x3=x3, L=L_M, Y=wage*L_M, U=U)
 
-# equillibrium solver for fixed L_M (used in schedule construction)
+# equillibrium solver for fixed L_M. Same structure as above.
 def solve_consumer_fixed_L(wage, mtr, T, t1, t2, t3, L_fixed):
     """Demand allocation at given prices and transfer, holding L_M = L_fixed."""
     p1, p2, p3 = 1 + t1, 1 + t2, 1 + t3
@@ -174,7 +176,7 @@ def solve_consumer_fixed_L(wage, mtr, T, t1, t2, t3, L_fixed):
     U = utility(x1, x2, x3, L_fixed)
     return dict(x1=x1, x2=x2, x3=x3, L=L_fixed, Y=wage*L_fixed, U=U)
 
-# government revenue function
+# government revenue function: per capita government revenue: population-weighted sum of net incomet ax paid plus commodity tax revenue on each good. 
 def gov_revenue(results, t1, t2, t3):
     """Sum of income tax (results[i]['T']) plus commodity tax revenue.
     Requires `results` to come from optimize_household."""
@@ -188,7 +190,7 @@ def gov_revenue(results, t1, t2, t3):
 G = 148.33 # sets amount of public good expenditure per person
 
 
-def print_shares(results, t1, t2, t3, label=""):
+def print_shares(results, t1, t2, t3, label=""): # simply print implied expenditure shares
     p = np.array([1+t1, 1+t2, 1+t3])
     if label:
         print(f"\n  Consumption shares — {label}")
@@ -199,26 +201,26 @@ def print_shares(results, t1, t2, t3, label=""):
         s = [p[j]*r[f'x{j+1}']/M for j in range(3)]
         print(f"  {i+1:>5}  {s[0]:>10.2%}  {s[1]:>11.2%}  {s[2]:>12.2%}")
 
-# tax schedule definiiton
+# tax schedule definiiton: two-bracket piecewise-linear income tax 45 % up to the kink at 750 tDKK, 60 % above. Mimicking danish income tax system.
 MTR_LOW   = 0.45 # low bracket
 MTR_HIGH  = 0.60 # high bracket
 Y_THRESHOLD = 750 #threshold (kink)
 T_AT_THRESHOLD = MTR_LOW * Y_THRESHOLD
 
-
-def MTR_of_y(y):
+ 
+def MTR_of_y(y):  # returns marginal tax rate, at income y
     """Marginal tax rate at gross income y, derived from T_ref."""
     return MTR_LOW if y <= Y_THRESHOLD else MTR_HIGH
 
 
-def _T_no_lump(y):
+def _T_no_lump(y): # income tax paid before the lump-sum transfer
     """Income tax paid (gross of any lump-sum transfer)."""
     if y <= Y_THRESHOLD:
         return MTR_LOW * y
     return T_AT_THRESHOLD + MTR_HIGH * (y - Y_THRESHOLD)
 
 
-def indirect_subutility(t1, t2, t3, c):
+def indirect_subutility(t1, t2, t3, c): #indirect subutility given total disposible income c (no labour disutility)
     """Indirect subutility from total cash c at consumer prices p_j = 1+t_j."""
     p = np.array([1+t1, 1+t2, 1+t3])
     M_sup = c - p @ k
@@ -229,7 +231,7 @@ def indirect_subutility(t1, t2, t3, c):
     return subutility(x1, x2, x3)
 
 
-def consumer_at_cash(t1, t2, t3, c):
+def consumer_at_cash(t1, t2, t3, c): #same as above, but returns demand bundle along with the subutility (used ofr optimize_household)
     """Demand allocation and subutility given cash budget c at prices p_j = 1+t_j."""
     p = np.array([1+t1, 1+t2, 1+t3])
     M_sup = c - p @ k
@@ -240,7 +242,7 @@ def consumer_at_cash(t1, t2, t3, c):
     return dict(x1=x1, x2=x2, x3=x3, M_sup=M_sup,
                 usub=subutility(x1, x2, x3))
 
-
+#optimize household: Inner objective: for L_M compute gross income y, tax T from the supplied schedule, disposable income, demands, home labor, total labor, disutility and full utility.
 def optimize_household(wage, prices, schedule):
     """Maximise full utility U(L_M) for a household, given the after-tax wage,
     a 3-tuple of commodity tax rates (t1, t2, t3), and a callable income-tax
@@ -261,6 +263,7 @@ def optimize_household(wage, prices, schedule):
         U = info['usub'] - v_L
         return -U
 
+# solve and recompute at optimum
     opt = minimize_scalar(_neg_U,
                           bounds=(1.0, HOURS_YEAR * 5.0),
                           method='bounded',
@@ -282,7 +285,9 @@ def optimize_household(wage, prices, schedule):
                 x1=info['x1'], x2=info['x2'], x3=info['x3'],
                 usub=info['usub'], U=U, Y=wage*L_M)
 
-
+# lump sum transfer calibration:
+# runs baseline with no transfer to get gross revenue, then sets T_lump so that net revenue exactly funds G per person. Rho_implied is the fraction of gross revenue retained for G.
+# the rest gets returned to households
 _res_gross_0 = [optimize_household(wages[i], tuple(t_base), _T_no_lump) for i in range(N)]
 rev_gross_0  = gov_revenue(_res_gross_0, *t_base)
 
@@ -290,7 +295,7 @@ T_lump       = rev_gross_0 - G
 T_fixed      = np.full(N, T_lump)
 rho_implied  = G / rev_gross_0 if rev_gross_0 != 0 else float('nan')
 
-
+# net tax schedule: income tax minus lump-sum transfer (reference schedule used in state 0 ands state 1)
 def T_ref(y):
     """Reference net tax schedule (income tax paid minus lump-sum transfer)."""
     return _T_no_lump(y) - T_lump
@@ -329,7 +334,9 @@ print(f"\n  Running with γ = {gamma}, θ = {theta}.  "
       f"(γ = 0 collapses to the separable model regardless of θ.)")
 
 print(f"\n  STATE 0 — Baseline (uniform 25% VAT, schedule T_ref(y); γ = {gamma}, θ = {theta})")
-
+# STATE 0 / STATUS QUO EQUILLIBRIUM:
+# SOLVES EACH INDIVIDUAL PROBLEM AT STATUS QUO VAT PRICES AND REFERENCE SCHEDULE
+# REPORTS BACK UTILITIES, HOURS SUBUTILITIES AND REVENUE R^0
 res_base = [optimize_household(wages[i], tuple(t_base), T_ref) for i in range(N)]
 U_base   = [r['U']    for r in res_base]
 L_base   = [r['L']    for r in res_base]
@@ -350,7 +357,8 @@ for i in range(N):
 print_shares(res_base, *t_base, label="State 0 — Baseline")
 
 print(f"\n  STATE 1 — Intermediate ΔP only (reform VAT, schedule T_ref unchanged)")
-
+# STATE 1 - ONLY VAT REFORM - 
+# SOLVES EQUILLIBRIUM NOW WITH CHANGE TO PRICES
 res_uncomp = [optimize_household(wages[i], tuple(t_reform), T_ref) for i in range(N)]
 rev_uncomp = sum(pop[i] * (res_uncomp[i]['T']
                             + t_reform[0] * res_uncomp[i]['x1']
@@ -378,14 +386,17 @@ for i in range(N):
           f"{L_base[i]:>9.2f}  {res_uncomp[i]['L']:>9.2f}  {dL:>+8.2f}")
 
 print(f"\n  STATE 2 — Pointwise schedule construction T̃(y) (U-equating, fixed L_M)")
-
+# STATE 2 / DISTRIBUTION-NEUTRAL VAT REFORM
+# CONSTRUCTION OF DN SCHEDULE
 _y_base_arr = np.array([res_base[i]['y'] for i in range(N)])
 _w_arr      = np.array([wages[i]          for i in range(N)])
 _order      = np.argsort(_y_base_arr)
 _y_sorted   = _y_base_arr[_order]
-_w_sorted   = _w_arr[_order]
+_w_sorted   = _w_arr[_order] # Builds a sorted income-wage map from baseline equillibrium for interpolation.
 
 
+# Recovers the underlying implied wage at any gross income y: flat interpolation at the bottom, linear extrapolation at the top and in between
+# Reports the implied labor at every single possible income y.
 def w_of_y(y_g):
     if y_g <= _y_sorted[0]:
         return float(_w_sorted[0])
@@ -394,7 +405,7 @@ def w_of_y(y_g):
         return float(_w_sorted[-1] + slope * (y_g - _y_sorted[-1]))
     return float(np.interp(y_g, _y_sorted, _w_sorted))
 
-
+#full utility at disposable income c holding L_M fixed at status quo level.
 def _U_at_fixed_L(prices, c, L_fixed):
     """Full utility U(c, L_M = L_fixed) with Becker home labour + IRS at given
     commodity prices.  Returns None if infeasible."""
@@ -407,13 +418,14 @@ def _U_at_fixed_L(prices, c, L_fixed):
     v_L = L_total**(1 + 1/epsilon) / ((1 + 1/epsilon) * phi)
     return info['usub'] - v_L
 
-
+# Sets up income grid from 0 to 3000. Gives reform prices and minimum disposable income (for subsistence coverage)
 y_grid       = np.linspace(0.0, 3000.0, 501)
 T_tilde_vals = np.zeros_like(y_grid)
 _p_reform    = np.array([1+t_reform[0], 1+t_reform[1], 1+t_reform[2]])
 _c_min       = _p_reform @ k + 1e-3
 fallback_count = 0
 
+# for each grid point y, recover wage and hours, compute baseline disposible income and target utility (utility at y_g under state 0)
 for j, y_g in enumerate(y_grid):
     w_g     = w_of_y(y_g)
     L_fixed = y_g / w_g if w_g > 0 else 0.0
@@ -426,7 +438,7 @@ for j, y_g in enumerate(y_grid):
         fallback_count += 1
         continue
 
-    def _diff(c):
+    def _diff(c): #root-find disposable income c such that utility under reform prices equals state 0 target.
         U_r = _U_at_fixed_L(tuple(t_reform), c, L_fixed)
         if U_r is None:
             return -1e10
@@ -441,12 +453,13 @@ for j, y_g in enumerate(y_grid):
         fallback_count += 1
     T_tilde_vals[j] = y_g - c_tilde
 
-
+# linear interpolation of the constructed schedule for use in the household problem
 def T_tilde(y):
     """Linear interpolation of the constructed schedule."""
     return float(np.interp(y, y_grid, T_tilde_vals))
 
-
+# STATE 2 EQUILLIBRIUM SOLVE
+# RESOLVE household at reform prices under the new schedule (Now letting L_M vary again)
 res_state2 = [optimize_household(wages[i], tuple(t_reform), T_tilde) for i in range(N)]
 
 rev_comp = sum(
@@ -478,7 +491,8 @@ for i in range(N):
           f"{dusub:>+10.4f}  {dU:>+10.4f}  {'YES' if U_ok else 'NO':>6}")
 print_shares(res_state2, *t_reform, label="State 2 — schedule construction")
 
-
+# EFFICIENCY TEST
+# S/Delta R = R^2 -R^0
 surplus = rev_comp - rev_base
 gross_income_pp = sum(pop[i] * res_base[i]['y'] for i in range(N))
 surplus_pct = 100.0 * surplus / gross_income_pp if gross_income_pp != 0 else float('nan')
@@ -522,12 +536,15 @@ print(f"    State 0  : {rev_base_com:>12,.4f} tDKK   ({100*rev_base_com/rev_base
 print(f"    State 1  : {rev_uncomp_com:>12,.4f} tDKK   ({100*rev_uncomp_com/rev_uncomp:>5.2f}% of R)   (ΔP only; Δ = {rev_uncomp_com-rev_base_com:+,.4f})")
 print(f"    State 2  : {rev_comp_com:>12,.4f} tDKK   ({100*rev_comp_com/rev_comp:>5.2f}% of R¹)  (Δ vs State 0 = {rev_comp_com-rev_base_com:+,.4f})")
 
+# sanity check that labour responses are small (they should be zero under weak seperabiltiy, and near zero under seperability)
 _dL_max = max(abs(res_state2[i]['L'] - L_base[i]) for i in range(N))
 print(f"  Max |ΔL_M| (market labour response, NOT imposed): {_dL_max:.2e} hours/year")
 print(f"  Population-weighted ΔL_M: "
       f"{sum(pop[i]*(res_state2[i]['L']-L_base[i]) for i in range(N)):+.4f} hours/year")
 
 
+# below is a wrapper that recomputes the entire state 0 -> DN-T -> State 2 pipeline at different gamma, then restores to the original.
+# The try/finally ensures that gamma is reset even on error. Used for gamma = 0 sanity check.
 def _compute_S_at_gamma(gamma_val, t_reform_local=None):
     """Run the full State 0 / T̃ build / State 2 pipeline at a given γ
     and return the surplus S = R¹ − R⁰."""
@@ -596,10 +613,9 @@ def _compute_S_at_gamma(gamma_val, t_reform_local=None):
     finally:
         gamma = _g_save
 
-
+# Runs a sanity check at gamma = 0 (home production off / weak seperability). 
 T_REFORM_SANITY = (0.0, 0.25, 0.25)
 S_REF_SEPARABLE = None
-
 S_g0 = _compute_S_at_gamma(0.0, t_reform_local=T_REFORM_SANITY)
 print(f"\n  SANITY CHECK at γ = 0 with reform = {T_REFORM_SANITY}  (θ = {theta} irrelevant here):")
 if S_REF_SEPARABLE is not None:
@@ -615,7 +631,7 @@ else:
 print(f"\n  Note: module-level t_reform = {tuple(t_reform)} is used for the main run "
       f"above; the sanity check uses the canonical reform tuple regardless.")
 
-
+# CABLES NEEDED FOR EFFECTIVE CALIBRATION
 print(f"\n  SHARE FIT AT BASELINE  (implied vs observed)")
 print(f"  {'Type':>5}  {'s1_obs':>8}  {'s1_imp':>8}  {'s2_obs':>8}  {'s2_imp':>8}  {'s3_obs':>8}  {'s3_imp':>8}")
 _calib = [optimize_household(wages[i], tuple(t_base), T_ref) for i in range(N)]
